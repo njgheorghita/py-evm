@@ -1,15 +1,15 @@
 #!/usr/bin/env python
 
-import pathlib
+import json
+from pathlib import Path
 
 from eth_utils import (
     encode_hex,
     decode_hex,
+    to_canonical_address,
 )
-
-from web3 import (
-    Web3
-)
+from ethpm import Package
+from web3 import Web3
 
 from eth.constants import (
     CREATE_CONTRACT_ADDRESS
@@ -20,14 +20,13 @@ from scripts.benchmark._utils.chain_plumbing import (
     FUNDED_ADDRESS_PRIVATE_KEY,
     get_all_chains,
 )
-from scripts.benchmark._utils.compile import (
-    get_compiled_contract
-)
 from scripts.benchmark._utils.tx import (
     new_transaction,
 )
 
-CONTRACT_FILE = 'scripts/stack_benchmark/contract_data/test_stack.sol'
+
+MANIFEST_PATH = Path(__file__).parent / 'package_manifests' / '1.0.0.json'
+TEST_STACK_MANIFEST = json.loads(MANIFEST_PATH.read_text())
 CONTRACT_NAME = 'TestStack'
 W3_TX_DEFAULTS = {'gas': 0, 'gasPrice': 0}
 FIRST_TX_GAS_LIMIT = 367724
@@ -35,24 +34,20 @@ SECOND_TX_GAS_LIMIT = 62050
 
 
 def execute_TestStack_contract():
-    contract_interface = get_compiled_contract(
-        pathlib.Path(CONTRACT_FILE),
-        CONTRACT_NAME
-    )
     w3 = Web3()
+    
+    # Create a Package for the TestStack manifest
+    test_stack_pkg = Package(TEST_STACK_MANIFEST, w3)
 
     # Get the chains
     chains = tuple(get_all_chains())
     chain = chains[0]
 
-    # Instantiate the contract
-    test_stack_contract = w3.eth.contract(
-        abi=contract_interface['abi'],
-        bytecode=contract_interface['bin']
-    )
+    # Grab the contract factory to easily deploy new TestStack instances
+    test_stack_contract_factory = test_stack_pkg.get_contract_factory("TestStack")
 
     # Build transaction to deploy the contract
-    w3_tx1 = test_stack_contract.constructor().buildTransaction(W3_TX_DEFAULTS)
+    w3_tx1 = test_stack_contract_factory.constructor().buildTransaction(W3_TX_DEFAULTS)
 
     tx = new_transaction(
         vm=chain.get_vm(),
@@ -69,10 +64,12 @@ def execute_TestStack_contract():
     assert computation.is_success
 
     # Interact with the deployed contract by calling the totalSupply() API ?????
-    test_stack_contract = w3.eth.contract(
-        address=Web3.toChecksumAddress(encode_hex(deployed_contract_address)),
-        abi=contract_interface['abi'],
-    )
+
+    # Grab the contract instance for the newly deployed TestStack
+    test_stack_contract = test_stack_pkg.get_contract_instance(
+        "TestStack",
+        to_canonical_address(deployed_contract_address)
+    ) 
 
     # Execute the computation
     w3_tx2 = test_stack_contract.functions.doLotsOfPops().buildTransaction(W3_TX_DEFAULTS)
